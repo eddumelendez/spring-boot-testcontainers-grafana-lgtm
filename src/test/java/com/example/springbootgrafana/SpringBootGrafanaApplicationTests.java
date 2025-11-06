@@ -1,107 +1,118 @@
 package com.example.springbootgrafana;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 
 import com.example.springbootgrafana.SpringBootGrafanaApplicationTests.TestAfterAllCallback;
 import io.micrometer.registry.otlp.OtlpMeterRegistry;
-import io.restassured.RestAssured;
-import io.restassured.http.ContentType;
-import org.hamcrest.Matchers;
+import net.minidev.json.JSONArray;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
+import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.client.EntityExchangeResult;
+import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.grafana.LgtmStackContainer;
 import org.testcontainers.shaded.org.awaitility.Awaitility;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
 		properties = { "management.otlp.metrics.export.step=1s", "management.tracing.sampling.probability=1" })
 @ExtendWith(TestAfterAllCallback.class)
-@AutoConfigureObservability
+@AutoConfigureRestTestClient
+@AutoConfigureMetrics
+@AutoConfigureTracing
 class SpringBootGrafanaApplicationTests {
 
-	@LocalServerPort
-	private int localPort;
+	@Autowired
+	private RestTestClient restTestClient;
 
 	@Autowired
 	private LgtmStackContainer lgtmStack;
 
 	@Test
 	void contextLoads() {
-		RestAssured.given().port(this.localPort).get("/greetings").then().assertThat().statusCode(200);
+		this.restTestClient.get().uri("/greetings").exchangeSuccessfully();
 
-		var serviceAccountKey = getServiceAccountKey(this.lgtmStack);
+		var lgtmRestTestClient = RestTestClient.bindToServer().baseUrl(lgtmStack.getGrafanaHttpUrl()).build();
+
+		var serviceAccountKey = getServiceAccountKey(lgtmRestTestClient);
 		var authHeader = "Bearer " + serviceAccountKey;
 
 		Awaitility.given()
 			.pollInterval(Duration.ofSeconds(2))
 			.atMost(Duration.ofSeconds(15))
 			.ignoreExceptions()
-			.untilAsserted(() -> RestAssured.given()
-				.baseUri(this.lgtmStack.getGrafanaHttpUrl())
-				.basePath("/api/datasources/proxy/uid/prometheus")
-				.header("Authorization", authHeader)
-				.queryParam("query", "http_server_requests_milliseconds_count{uri=\"/greetings\"}")
-				.get("/api/v1/query")
-				.prettyPeek()
-				.then()
-				.assertThat()
-				.statusCode(200)
-				.body("data.result[0].value", Matchers.hasItem("1")));
+			.untilAsserted(() -> lgtmRestTestClient.post()
+				.uri(UriComponentsBuilder.fromPath("/api/datasources/proxy/uid/prometheus/api/v1/query")
+					.queryParam("query", "http_server_requests_milliseconds_count{uri=\"/greetings\"}")
+					.build()
+					.toUri())
+				.header(HttpHeaders.AUTHORIZATION, authHeader)
+				.exchange()
+				.expectBody()
+				.jsonPath("data.result[0].value")
+				.value(JSONArray.class, value -> assertThat(value).contains("1")));
 
 		Awaitility.given()
 			.pollInterval(Duration.ofSeconds(2))
 			.atMost(Duration.ofSeconds(15))
 			.ignoreExceptions()
-			.untilAsserted(() -> RestAssured.given()
-				.baseUri(this.lgtmStack.getGrafanaHttpUrl())
-				.basePath("/api/datasources/proxy/uid/tempo")
-				.header("Authorization", authHeader)
-				.queryParam("q", "{resource.service.name=\"TestSpringBootDemo\"}")
-				.get("/api/search")
-				.prettyPeek()
-				.then()
-				.assertThat()
-				.statusCode(200)
-				.body("traces[0].spanSets.spans", Matchers.hasSize(1))
-				.and()
-				.body("traces[0].rootTraceName", Matchers.equalTo("http get /greetings")));
+			.untilAsserted(() -> lgtmRestTestClient.post()
+				.uri(UriComponentsBuilder.fromPath("/api/datasources/proxy/uid/tempo/api/search")
+					.queryParam("q", "{resource.service.name=\"TestSpringBootDemo\"}")
+					.build()
+					.toUri())
+				.header(HttpHeaders.AUTHORIZATION, authHeader)
+				.exchange()
+				.expectBody()
+				.jsonPath("traces[0].spanSet.spans")
+				.value(JSONArray.class, value -> assertThat(value).hasSize(1))
+				.jsonPath("traces[0].rootTraceName")
+				.isEqualTo("http get /greetings"));
 
 		Awaitility.given()
 			.pollInterval(Duration.ofSeconds(2))
 			.atMost(Duration.ofSeconds(15))
 			.ignoreExceptions()
-			.untilAsserted(() -> RestAssured.given()
-				.baseUri(this.lgtmStack.getGrafanaHttpUrl())
-				.basePath("/api/datasources/proxy/uid/loki")
-				.header("Authorization", authHeader)
-				.queryParam("query", "{service_name=\"TestSpringBootDemo\"} | foo=`bar` |= ``")
-				.get("/loki/api/v1/query_range")
-				.prettyPeek()
-				.then()
-				.assertThat()
-				.statusCode(200)
-				.body("data.result[0].values[0]", Matchers.hasItem("request...")));
+			.untilAsserted(() -> lgtmRestTestClient.post()
+				.uri(UriComponentsBuilder.fromPath("/api/datasources/proxy/uid/loki/loki/api/v1/query_range")
+					.queryParam("query", "{service_name=\"TestSpringBootDemo\"} | foo=`bar` |= ``")
+					.build()
+					.toUri())
+				.header(HttpHeaders.AUTHORIZATION, authHeader)
+				.exchange()
+				.expectBody()
+				.jsonPath("data.result[0].values[0]")
+				.value(JSONArray.class, value -> assertThat(value).contains("request...")));
 	}
 
-	private static Object getServiceAccountKey(LgtmStackContainer lgtmStack) {
-		var serviceAccountId = RestAssured.given()
-			.baseUri(lgtmStack.getGrafanaHttpUrl())
-			.auth()
-			.preemptive()
-			.basic("admin", "admin")
-			.contentType(ContentType.JSON)
-			.accept(ContentType.JSON)
+	private static Object getServiceAccountKey(RestTestClient restTestClient) {
+		var encodeBasicAuth = HttpHeaders.encodeBasicAuth("admin", "admin", StandardCharsets.UTF_8);
+		var authHeader = "Basic " + encodeBasicAuth;
+
+		EntityExchangeResult<ServiceAccount> serviceAccountEntityExchangeResult = restTestClient.post()
+			.uri("/api/serviceaccounts")
+			.header(HttpHeaders.AUTHORIZATION, authHeader)
+			.contentType(MediaType.APPLICATION_JSON)
+			.accept(MediaType.APPLICATION_JSON)
 			.body("""
 					{
 					  "name": "grafana",
@@ -109,30 +120,25 @@ class SpringBootGrafanaApplicationTests {
 					  "isDisabled": false
 					}
 					""")
-			.post("/api/serviceaccounts")
-			.prettyPeek()
-			.body()
-			.jsonPath()
-			.get("id");
+			.exchange()
+			.returnResult(ServiceAccount.class);
+		var serviceAccount = serviceAccountEntityExchangeResult.getResponseBody();
 
-		var serviceAccountKey = RestAssured.given()
-			.baseUri(lgtmStack.getGrafanaHttpUrl())
-			.auth()
-			.preemptive()
-			.basic("admin", "admin")
-			.contentType(ContentType.JSON)
-			.accept(ContentType.JSON)
+		var tokenEntityExchangeResult = restTestClient.post()
+			.uri("/api/serviceaccounts/{id}/tokens", serviceAccount.id())
+			.header(HttpHeaders.AUTHORIZATION, authHeader)
+			.contentType(MediaType.APPLICATION_JSON)
+			.accept(MediaType.APPLICATION_JSON)
 			.body("""
 					{
 						"name": "grafana"
 					}
 					""")
-			.post("/api/serviceaccounts/{id}/tokens ", serviceAccountId)
-			.prettyPeek()
-			.body()
-			.jsonPath()
-			.get("key");
-		return serviceAccountKey;
+			.exchange()
+			.returnResult(Token.class);
+		var token = tokenEntityExchangeResult.getResponseBody();
+
+		return token.key();
 	}
 
 	static class TestAfterAllCallback implements AfterAllCallback {
@@ -143,6 +149,14 @@ class SpringBootGrafanaApplicationTests {
 			OtlpMeterRegistry meterRegistry = applicationContext.getBean(OtlpMeterRegistry.class);
 			meterRegistry.close();
 		}
+
+	}
+
+	record ServiceAccount(String id) {
+
+	}
+
+	record Token(String key) {
 
 	}
 
