@@ -2,7 +2,6 @@ package com.example.springbootgrafana;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
 
 import com.example.springbootgrafana.SpringBootGrafanaApplicationTests.TestAfterAllCallback;
 import io.micrometer.registry.otlp.OtlpMeterRegistry;
@@ -30,7 +29,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.InstanceOfAssertFactories.LIST;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
