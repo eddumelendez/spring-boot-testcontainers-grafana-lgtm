@@ -3,13 +3,8 @@ package com.example.springbootgrafana;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
-import com.example.springbootgrafana.SpringBootGrafanaApplicationTests.TestAfterAllCallback;
-import io.micrometer.registry.otlp.OtlpMeterRegistry;
 import net.minidev.json.JSONArray;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.AfterAllCallback;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.extension.ExtensionContext;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -24,16 +19,13 @@ import org.testcontainers.shaded.org.awaitility.Awaitility;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT,
 		properties = { "management.otlp.metrics.export.step=1s", "management.tracing.sampling.probability=1" })
-@ExtendWith(TestAfterAllCallback.class)
 @AutoConfigureRestTestClient
 @AutoConfigureMetrics
 @AutoConfigureTracing
@@ -137,17 +129,6 @@ class SpringBootGrafanaApplicationTests {
 		var token = tokenEntityExchangeResult.getResponseBody();
 
 		return token.key();
-	}
-
-	static class TestAfterAllCallback implements AfterAllCallback {
-
-		@Override
-		public void afterAll(ExtensionContext context) {
-			ApplicationContext applicationContext = SpringExtension.getApplicationContext(context);
-			OtlpMeterRegistry meterRegistry = applicationContext.getBean(OtlpMeterRegistry.class);
-			meterRegistry.close();
-		}
-
 	}
 
 	record ServiceAccount(String id) {
