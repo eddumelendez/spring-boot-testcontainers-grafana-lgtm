@@ -52,7 +52,7 @@ class SpringBootGrafanaApplicationTests {
 			.ignoreExceptions()
 			.untilAsserted(() -> lgtmRestTestClient.post()
 				.uri(UriComponentsBuilder.fromPath("/api/datasources/proxy/uid/prometheus/api/v1/query")
-					.queryParam("query", "http_server_requests_milliseconds_count{uri=\"/greetings\"}")
+					.queryParam("query", "http_server_request_duration_milliseconds_count{http_route=\"/greetings\"}")
 					.build()
 					.toUri())
 				.header(HttpHeaders.AUTHORIZATION, authHeader)
@@ -76,7 +76,7 @@ class SpringBootGrafanaApplicationTests {
 				.jsonPath("traces[0].spanSet.spans")
 				.value(JSONArray.class, value -> assertThat(value).hasSize(1))
 				.jsonPath("traces[0].rootTraceName")
-				.isEqualTo("http get /greetings"));
+				.isEqualTo("GET /greetings"));
 
 		Awaitility.given()
 			.pollInterval(Duration.ofSeconds(2))
