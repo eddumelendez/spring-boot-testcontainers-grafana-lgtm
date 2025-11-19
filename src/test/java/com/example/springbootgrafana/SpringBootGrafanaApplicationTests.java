@@ -39,7 +39,13 @@ class SpringBootGrafanaApplicationTests {
 
 	@Test
 	void contextLoads() {
-		this.restTestClient.get().uri("/greetings").exchangeSuccessfully();
+		String traceId = this.restTestClient.get()
+			.uri("/greetings")
+			.exchangeSuccessfully()
+			.returnResult(String.class)
+			.getResponseHeaders()
+			.get("X-Trace-Id")
+			.getFirst();
 
 		var lgtmRestTestClient = RestTestClient.bindToServer().baseUrl(lgtmStack.getGrafanaHttpUrl()).build();
 
@@ -73,6 +79,8 @@ class SpringBootGrafanaApplicationTests {
 				.header(HttpHeaders.AUTHORIZATION, authHeader)
 				.exchange()
 				.expectBody()
+				.jsonPath("traces[0].traceID")
+				.value(String.class, value -> assertThat(value).isEqualTo(traceId))
 				.jsonPath("traces[0].spanSet.spans")
 				.value(JSONArray.class, value -> assertThat(value).hasSize(1))
 				.jsonPath("traces[0].rootTraceName")
