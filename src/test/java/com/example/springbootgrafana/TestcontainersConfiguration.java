@@ -12,7 +12,7 @@ public class TestcontainersConfiguration {
 	@Bean
 	@ServiceConnection
 	LgtmStackContainer lgtmContainer() {
-		return new LgtmStackContainer("grafana/otel-lgtm:0.11.8");
+		return new LgtmStackContainer("grafana/otel-lgtm:0.11.17");
 	}
 
 }
